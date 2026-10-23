@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RA Offline Programmer</title>
+<style>
+/* Same palette as the desktop UI in tools/ (dark slate). No external assets: the AP has no internet. */
+:root {
+  --bg: #0e131b; --card: #161d28; --border: #273244; --text: #e6eaf0; --muted: #8c99ad;
+  --accent: #3b82f6; --accent-hover: #2563eb; --accent-glow: #60a5fa; --accent-soft: #172a46; --accent-text: #93c5fd;
+  --ok: #22c55e; --ok-hover: #16a34a; --ok-soft: #0f2a1d; --ok-text: #4ade80;
+  --err: #ef4444; --err-hover: #dc2626; --err-soft: #341719; --err-text: #f87171;
+  --warn: #fbbf24; --warn-soft: #33280e; --idle-soft: #1c2433;
+  --header: #090d13; --header-muted: #7c899c;
+  --btn: #263142; --btn-hover: #303d52; --btn-pressed: #3a4962; --btn-border: #3d4c64;
+  --btn-dis: #1b2230; --btn-dis-border: #262f3f; --btn-dis-text: #5d6a7d; --acc-dis: #2a3446;
+  --field: #0f1520; --field-border: #334155; --log-time: #5d6a7d;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.4 var(--font); min-height: 100vh; }
+button, input, select { font: inherit; color: inherit; }
+
+/* header */
+header { background: var(--header); padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 20px; color: #fff; font-weight: 700; }
+header .sub { color: var(--header-muted); font-size: 12px; }
+.conn { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.host { color: var(--header-muted); font-size: 12px; font-family: var(--mono); }
+.pill { font-size: 12px; font-weight: 700; padding: 4px 10px; background: var(--err-soft); color: #fca5a5; white-space: nowrap; }
+.pill.on { background: var(--ok-soft); color: var(--ok-text); }
+
+.hint { background: var(--accent-soft); padding: 6px 18px; display: flex; align-items: center; gap: 8px; }
+.hint b { color: var(--accent-text); font-size: 18px; }
+.hint[hidden] { display: none; }
+
+/* layout */
+main { padding: 14px 16px; display: grid; grid-template-columns: 5fr 6fr; gap: 10px 16px; max-width: 1400px; margin: 0 auto; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.col > .grow { flex: 1; }
+main > * { min-width: 0; }
+.full { grid-column: 1 / -1; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } .col.status { order: -1; } }
+
+.card { background: var(--card); border: 1px solid var(--border); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 0; }
+.card-head h2 { margin: 0; font-size: 15px; font-weight: 700; flex: 1; }
+.step { background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 700; padding: 1px 7px; }
+.card-body { padding: 8px 14px 12px; }
+.muted { color: var(--muted); font-size: 12px; }
+.big { font-size: 20px; font-weight: 700; word-break: break-all; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row .fill { flex: 1; min-width: 0; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* buttons */
+.btn { background: var(--btn); border: 1px solid var(--btn-border); padding: 6px 12px; font-weight: 700; cursor: pointer; color: var(--text); }
+.btn:hover:not(:disabled) { background: var(--btn-hover); border-color: var(--accent); }
+.btn:active:not(:disabled) { background: var(--btn-pressed); }
+.btn.accent, .btn.ok, .btn.danger { color: #fff; padding: 7px 16px; }
+.btn.accent { background: var(--accent); border-color: var(--accent); }
+.btn.accent:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.danger { background: var(--err); border-color: var(--err); }
+.btn.danger:hover:not(:disabled) { background: var(--err-hover); border-color: var(--err-hover); }
+.btn:disabled { background: var(--btn-dis); border-color: var(--btn-dis-border); color: var(--btn-dis-text); cursor: default; }
+.btn.accent:disabled, .btn.danger:disabled { background: var(--acc-dis); border-color: var(--acc-dis); }
+.link { background: none; border: 0; color: var(--accent-text); text-decoration: underline; font-size: 12px; padding: 2px 4px; cursor: pointer; }
+.link:hover:not(:disabled) { background: var(--accent-soft); }
+.link:disabled { color: var(--btn-dis-text); cursor: default; }
+.flash { width: 100%; font-size: 22px; padding: 14px 20px; margin: 12px 0 4px; }
+
+/* fields */
+select, input[type=text], input[type=number] { background: var(--field); border: 1px solid var(--field-border); padding: 4px 6px; color: var(--text); }
+select:focus, input:focus { outline: none; border-color: var(--accent); }
+select:disabled, input:disabled { background: var(--btn-dis); color: var(--btn-dis-text); }
+input[type=number] { width: 90px; }
+input[type=file] { display: none; }
+
+.settings { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: center; }
+.seg { display: inline-flex; flex-wrap: wrap; }
+.seg label { cursor: pointer; position: relative; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: inline-block; min-width: 150px; text-align: center; padding: 5px 14px; font-size: 12px; font-weight: 700; background: var(--btn); border: 1px solid var(--btn-border); }
+.seg label:hover span { background: var(--btn-hover); }
+.seg input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg input:disabled + span { background: var(--btn-dis); border-color: var(--btn-dis-border); color: var(--btn-dis-text); cursor: default; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent-glow); }
+.checks { display: flex; gap: 16px; flex-wrap: wrap; }
+.checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 15px; height: 15px; }
+.sep { height: 1px; background: var(--border); margin: 8px 0 6px; grid-column: 1 / -1; }
+@media (max-width: 520px) { .settings { grid-template-columns: 1fr; gap: 2px; } .settings > .lbl { margin-top: 6px; } .seg span { min-width: 0; } .saved { flex-basis: 100%; } }
+
+/* progress */
+.bar { height: 10px; background: var(--idle-soft); overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.bar.ok > div { background: var(--ok); }
+.bar.err > div { background: var(--err); }
+
+/* status banner */
+.banner { padding: 14px 18px 12px; background: var(--idle-soft); }
+.banner .title { font-size: 30px; font-weight: 700; color: var(--muted); line-height: 1.2; }
+.banner .msg { color: var(--muted); margin-top: 2px; min-height: 1.4em; word-break: break-word; }
+.banner.idle .title { color: var(--text); }
+.banner.busy { background: var(--accent-soft); } .banner.busy .title { color: var(--accent-text); }
+.banner.ok { background: var(--ok-soft); } .banner.ok .title, .banner.ok .msg { color: var(--ok-text); }
+.banner.err { background: var(--err-soft); } .banner.err .title, .banner.err .msg { color: var(--err-text); }
+
+.match { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; margin-top: 6px; }
+.match.same { background: var(--ok-soft); color: var(--ok-text); }
+.match.diff { background: var(--warn-soft); color: var(--warn); }
+.match:empty { display: none; }
+
+/* counters */
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tile { text-align: center; padding: 8px 4px 6px; }
+.tile .t { font-size: 12px; font-weight: 700; }
+.tile .n { font-size: 34px; font-weight: 700; line-height: 1.2; }
+.tile.pass { background: var(--ok-soft); color: var(--ok-text); }
+.tile.fail { background: var(--err-soft); color: var(--err-text); }
+.tile.total { background: var(--idle-soft); }
+.tile.yield { background: var(--accent-soft); color: var(--accent-text); }
+@media (max-width: 420px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+
+.tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+@media (max-width: 520px) { .tools { grid-template-columns: repeat(2, 1fr); } }
+
+/* log */
+.log { background: var(--field); font: 12px/1.5 var(--mono); padding: 6px 8px; height: 190px; overflow: auto; white-space: pre; }
+.log .time { color: var(--log-time); }
+.log .err { color: var(--err-text); } .log .ok { color: var(--ok-text); } .log .dim { color: var(--muted); }
+
+.saved { font-size: 12px; font-weight: 700; color: var(--muted); }
+.saved.warn { color: var(--warn); } .saved.ok { color: var(--ok-text); }
+
+/* dialogs */
+dialog { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 18px; max-width: min(620px, calc(100vw - 32px)); width: 100%; }
+dialog::backdrop { background: rgba(0, 0, 0, .55); }
+dialog h3 { margin: 0 0 6px; font-size: 15px; }
+dialog p { margin: 4px 0 12px; white-space: pre-line; }
+dialog .btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>RA Offline Programmer</h1>
+    <div class="sub">Renesas RA2E1 · SWD production flasher &nbsp;·&nbsp; ESP8266 &nbsp;·&nbsp; Wi-Fi</div>
+  </div>
+  <div class="conn">
+    <span class="host" id="host"></span>
+    <span class="pill" id="pill">●&nbsp; Disconnected</span>
+  </div>
+</header>
+<div class="hint" id="hint"><b>①</b><span id="hintText">Connecting to the programmer… (join the RA-Flasher-XXXX Wi-Fi, then open http://ra-flasher.local)</span></div>
+
+<main>
+  <div class="col">
+    <section class="card">
+      <div class="card-head"><span class="step">2</span><h2>On the programmer</h2>
+        <button class="link conn-only" id="refreshBtn">Refresh</button></div>
+      <div class="card-body">
+        <div class="big" id="devName">—</div>
+        <div class="muted" id="devDetail">Connect to see the stored firmware.</div>
+        <div class="match" id="match"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="step">3</span><h2>Load new firmware</h2></div>
+      <div class="card-body">
+        <div class="row">
+          <strong class="fill ellipsis" id="fileName">No file selected</strong>
+          <label class="btn" for="file">Browse…</label>
+          <input type="file" id="file" accept=".hex,.srec,.mot,.s19,.s28,.s37,.bin">
+        </div>
+        <div class="muted" id="fileDetail" style="margin:2px 0 8px">Intel HEX (.hex) or S-record (.srec / .mot) from e2 studio</div>
+        <div class="row">
+          <span class="fill"></span>
+          <button class="btn accent conn-only" id="uploadBtn">Upload to programmer</button>
+        </div>
+        <div class="bar" id="upBar" style="margin-top:10px"><div></div></div>
+      </div>
+    </section>
+
+    <section class="card grow">
+      <div class="card-head"><h2>Programmer settings</h2></div>
+      <div class="card-body settings" id="settings">
+        <span class="lbl">Start flashing by</span>
+        <div class="seg">
+          <label><input type="radio" name="mode" value="button" class="conn-only"><span>Button press</span></label>
+          <label><input type="radio" name="mode" value="auto" class="conn-only"><span>Auto-detect board</span></label>
+        </div>
+        <span class="lbl">Erase</span>
+        <div class="seg">
+          <label><input type="radio" name="erase" value="chip" class="conn-only"><span>Full chip</span></label>
+          <label><input type="radio" name="erase" value="blocks" class="conn-only"><span>Only image blocks</span></label>
+        </div>
+        <span class="lbl">After programming</span>
+        <div class="checks">
+          <label><input type="checkbox" id="verify" class="conn-only">Verify</label>
+          <label><input type="checkbox" id="run" class="conn-only">Run firmware</label>
+        </div>
+        <span class="lbl">Reset line (RES)</span>
+        <div class="checks">
+          <label><input type="checkbox" id="reset" class="conn-only">Use RES (connect under reset)</label>
+        </div>
+        <span class="lbl">SWD clock delay</span>
+        <div class="row"><input type="number" id="swdelay" min="0" max="250" step="1" class="conn-only">
+          <span class="muted">0 = fastest; raise for long wires</span></div>
+        <span class="lbl">Auto-detect settle</span>
+        <div class="row"><input type="number" id="settle" min="0" max="10000" step="100" class="conn-only">
+          <span class="muted">ms to wait after a board is detected</span></div>
+        <div class="sep"></div>
+        <div class="row" style="grid-column:1/-1">
+          <span class="saved fill" id="saved">Connect to view and change the programmer settings.</span>
+          <button class="btn" id="revertBtn">Undo changes</button>
+          <button class="btn accent" id="saveBtn">Save to programmer</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col status">
+    <section class="card">
+      <div class="banner off" id="banner"><div class="title" id="bTitle">Not connected</div><div class="msg" id="bMsg"></div></div>
+      <div class="card-body" style="padding:12px 18px 14px">
+        <div class="bar" id="progBar"><div></div></div>
+        <button class="btn accent flash conn-only" id="flashBtn">⚡&nbsp; FLASH TARGET</button>
+        <div class="muted" id="flashHint"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Production counters</h2>
+        <button class="link conn-only" id="resetCntBtn">Reset counters</button></div>
+      <div class="card-body tiles">
+        <div class="tile pass"><div class="t">PASS</div><div class="n" id="nPass">0</div></div>
+        <div class="tile fail"><div class="t">FAIL</div><div class="n" id="nFail">0</div></div>
+        <div class="tile total"><div class="t">TOTAL</div><div class="n" id="nTotal">0</div></div>
+        <div class="tile yield"><div class="t">YIELD</div><div class="n" id="nYield">–</div></div>
+      </div>
+    </section>
+
+    <section class="card grow">
+      <div class="card-head"><h2>Target tools</h2></div>
+      <div class="card-body tools">
+        <button class="btn conn-only" id="detectBtn">Detect chip</button>
+        <button class="btn conn-only" id="resetBtn">Reset &amp; run target</button>
+        <button class="btn conn-only" id="eraseBtn">Erase chip</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="card full">
+    <div class="card-head"><h2>Activity log</h2><button class="link" id="csvBtn">Download results (.csv)</button></div>
+    <div class="card-body">
+      <div class="log" id="log"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="msgDlg">
+  <h3 id="msgTitle"></h3><p id="msgText"></p>
+  <div class="btns"><button class="btn" id="msgCancel">Cancel</button><button class="btn accent" id="msgOk">OK</button></div>
+</dialog>
+
+<script>
+"use strict";
+// RA2E1 memory map (R7FA2E1A9 / A7 / A5: 128 / 64 / 32 KB code flash)
+const CF_BASE = 0x00000000, CF_MAX = 128 * 1024;
+const DF_BASE = 0x40100000, DF_SIZE = 4 * 1024;
+const EXTRA_BASE = 0x01010000, EXTRA_END = 0x01010040;  // option-setting extra area: ID code (OSIS), access window
+const STATE_TEXT = { connect: "Connecting to target", erase: "Erasing", program: "Programming", verify: "Verifying" };
+const $ = (id) => document.getElementById(id);
+const hex8 = (n) => "0x" + (n >>> 0).toString(16).toUpperCase().padStart(8, "0");
+const fmtInt = (n) => Number(n).toLocaleString("en-US");
+const store = {  // localStorage may be unavailable (private mode, captive-portal window)
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } },
+};
+
+// ------------------------------------------------------------------ image loading
+function hexBytes(body, ln) {
+  if (body.length % 2 || /[^0-9a-f]/i.test(body)) throw new Error(`line ${ln}: invalid hex characters`);
+  const rec = new Uint8Array(body.length / 2);
+  for (let i = 0; i < rec.length; i++) rec[i] = parseInt(body.substr(i * 2, 2), 16);
+  return rec;
+}
+
+function parseIntelHex(text) {
+  const mem = new Map();
+  let upper = 0, ln = 0;
+  for (let line of text.split(/\r?\n/)) {
+    ln++;
+    line = line.trim();
+    if (!line) continue;
+    if (line[0] !== ":") throw new Error(`line ${ln}: missing ':'`);
+    const rec = hexBytes(line.slice(1), ln);
+    if (rec.length < 5 || rec.length !== rec[0] + 5) throw new Error(`line ${ln}: bad record length`);
+    if (rec.reduce((a, b) => a + b, 0) & 0xff) throw new Error(`line ${ln}: checksum error`);
+    const addr = (rec[1] << 8) | rec[2], type = rec[3], data = rec.subarray(4, 4 + rec[0]);
+    if (type === 0) { const base = upper + addr; data.forEach((b, i) => mem.set(base + i, b)); }
+    else if (type === 1) break;
+    else if (type === 2) upper = ((data[0] << 8) | data[1]) << 4;
+    else if (type === 4) upper = ((data[0] << 8) | data[1]) * 65536;
+  }
+  return mem;
+}
+
+// Motorola S-record (e2 studio .srec / .mot)
+function parseSrec(text) {
+  const mem = new Map(), addrLen = { 1: 2, 2: 3, 3: 4 };
+  let ln = 0;
+  for (let line of text.split(/\r?\n/)) {
+    ln++;
+    line = line.trim();
+    if (!line) continue;
+    if (line[0] !== "S" || line.length < 4) throw new Error(`line ${ln}: not an S-record`);
+    const kind = line[1], rec = hexBytes(line.slice(2), ln);
+    if (rec.length !== rec[0] + 1) throw new Error(`line ${ln}: bad record length`);
+    if ((rec.reduce((a, b) => a + b, 0) & 0xff) !== 0xff) throw new Error(`line ${ln}: checksum error`);
+    if (addrLen[kind]) {
+      const n = addrLen[kind];
+      let base = 0;
+      for (let i = 1; i <= n; i++) base = base * 256 + rec[i];
+      rec.subarray(1 + n, rec.length - 1).forEach((b, i) => mem.set(base + i, b));
+    } else if ("789".includes(kind)) break;
+  }
+  return mem;
+}
+
+// Parse a picked file. Returns { cf, df, data, extra }: code flash from address 0, data flash from 0x40100000.
+function loadImage(name, bytes) {
+  const first = String.fromCharCode(bytes.find((b) => b > 0x20) || 0);
+  let mem;
+  if (/\.bin$/i.test(name)) { mem = new Map(); bytes.forEach((b, i) => mem.set(CF_BASE + i, b)); }
+  else if (first === ":") mem = parseIntelHex(new TextDecoder("ascii").decode(bytes));
+  else if (first === "S") mem = parseSrec(new TextDecoder("ascii").decode(bytes));
+  else throw new Error("not an Intel HEX, S-record or .bin file");
+  if (!mem.size) throw new Error("no data records in file");
+
+  const cf = new Map(), df = new Map();
+  let extra = 0, custom = null, otherLo = Infinity, otherHi = -Infinity;
+  for (const [a, b] of mem) {
+    if (a >= CF_BASE && a < CF_BASE + CF_MAX) cf.set(a - CF_BASE, b);
+    else if (a >= DF_BASE && a < DF_BASE + DF_SIZE) df.set(a - DF_BASE, b);
+    else if (a >= EXTRA_BASE && a < EXTRA_END) { extra++; if (b !== 0xff && (custom === null || a < custom)) custom = a; }
+    else { otherLo = Math.min(otherLo, a); otherHi = Math.max(otherHi, a); }
+  }
+  if (otherHi >= 0)
+    throw new Error(`data at ${hex8(otherLo)}-${hex8(otherHi)} is outside the RA2E1 code flash (0x00000000), data flash (0x40100000) and option area`);
+  if (custom !== null)
+    throw new Error(`the file sets the ID code / access window at ${hex8(custom)} (option-setting extra area). This programmer only supports the default (all 0xFF, unlocked) setting.`);
+
+  const blob = (m, align) => {
+    if (!m.size) return new Uint8Array(0);
+    let size = 0;
+    for (const off of m.keys()) size = Math.max(size, off + 1);
+    size += (align - (size % align)) % align;
+    const buf = new Uint8Array(size).fill(0xff);
+    for (const [off, b] of m) buf[off] = b;
+    return buf;
+  };
+  const cfb = blob(cf, 4), dfb = blob(df, 1);
+  const data = new Uint8Array(cfb.length + dfb.length);
+  data.set(cfb);
+  data.set(dfb, cfb.length);
+  return { cf: cfb, df: dfb, data, extra };
+}
+
+function describeImage(im) {
+  const parts = [im.cf.length ? `Code flash ${fmtInt(im.cf.length)} B (0x00000000-${hex8(im.cf.length - 1)})` : "No code flash data"];
+  if (im.df.length) parts.push(`Data flash ${fmtInt(im.df.length)} B`);
+  if (im.extra) parts.push("ID code unlocked");
+  return parts.join("   ·   ");
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(data) {  // zlib-compatible, same as the firmware
+  let c = 0xffffffff;
+  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// ------------------------------------------------------------------ protocol
+function parseKv(text) {
+  const out = {};
+  for (const tok of text.split(/\s+/)) { const i = tok.indexOf("="); if (i > 0) out[tok.slice(0, i)] = tok.slice(i + 1); }
+  return out;
+}
+function parseReply(name, text) {
+  const m = /^@(OK|ERR) (\S+) ?([\s\S]*)$/.exec(text.trim());
+  if (!m) throw new Error(`${name}: unexpected reply from programmer`);
+  if (m[1] === "ERR") throw new Error(`${m[2]}: ${m[3]}`);
+  return m[3];
+}
+async function fetchText(url, opts = {}, timeoutMs = 20000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { ...opts, signal: ctl.signal, cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.text();
+  } catch (e) {
+    throw new Error(e.name === "AbortError" ? "no reply from programmer" : e.message);
+  } finally { clearTimeout(timer); }
+}
+async function request(cmd, timeoutMs = 20000) {
+  const name = cmd.split(" ")[0].toUpperCase();
+  const text = await fetchText("/api/cmd", { method: "POST", body: new URLSearchParams({ c: cmd }) }, timeoutMs)
+    .catch((e) => { throw new Error(`${name}: ${e.message}`); });
+  return parseReply(name, text);
+}
+
+// ------------------------------------------------------------------ state
+const S = { online: false, busy: false, deviceBusy: false, since: 0, info: {}, saved: null, image: null, results: [] };
+
+// ------------------------------------------------------------------ log / dialogs
+function log(text, tag) {
+  const el = $("log");
+  const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+  const t = document.createElement("span"); t.className = "time";
+  t.textContent = new Date().toTimeString().slice(0, 8) + "  ";
+  const m = document.createElement("span"); if (tag) m.className = tag;
+  m.textContent = text + "\n";
+  el.append(t, m);
+  while (el.childNodes.length > 1000) el.firstChild.remove();
+  if (atEnd) el.scrollTop = el.scrollHeight;
+}
+function dialog(title, text, { confirm = false, okText = "OK", danger = false } = {}) {
+  return new Promise((resolve) => {
+    const d = $("msgDlg");
+    $("msgTitle").textContent = title;
+    $("msgText").textContent = text;
+    $("msgCancel").hidden = !confirm;
+    $("msgOk").textContent = okText;
+    $("msgOk").className = "btn " + (danger ? "danger" : "accent");
+    const done = (v) => { d.close(); resolve(v); };
+    $("msgOk").onclick = () => done(true);
+    $("msgCancel").onclick = () => done(false);
+    d.oncancel = (e) => { e.preventDefault(); done(false); };
+    d.showModal();
+    $("msgOk").focus();
+  });
+}
+const showError = (msg) => { log(msg, "err"); return dialog("Error", msg); };
+const confirmBox = (title, text, opts) => dialog(title, text, { confirm: true, ...opts });
+
+async function runBg(title, fn, quiet = false) {
+  if (!S.online) { if (!quiet) dialog("Not connected", "The programmer is not reachable. Check the Wi-Fi connection."); return; }
+  if (S.busy) { if (!quiet) dialog("Busy", "Another operation is still running."); return; }
+  S.busy = true;
+  try { await fn(); }
+  catch (e) { if (!quiet) showError(`${title}: ${e.message}`); else log(`${title}: ${e.message}`, "err"); }
+  finally { S.busy = false; }
+}
+
+// ------------------------------------------------------------------ banner / enable state
+function setBanner(title, msg = "", kind = "idle") {
+  $("banner").className = "banner " + kind;
+  $("bTitle").textContent = title;
+  $("bMsg").textContent = msg;
+  $("progBar").className = "bar" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
+}
+const setProgress = (bar, pct) => { $(bar).firstElementChild.style.width = Math.max(0, Math.min(100, pct)) + "%"; };
+
+function updateFlashHint() {
+  let t;
+  if (!S.online) t = "Connect the programmer first.";
+  else if (S.info.img !== "1") t = "No firmware on the programmer yet — upload one first (step 3).";
+  else if ((S.saved || {}).mode === "auto") t = "Auto-detect is on: place a board on the fixture and it is flashed automatically.";
+  else t = "Press FLASH or the button on the programmer.";
+  $("flashHint").textContent = t;
+}
+
+function updateEnabled() {
+  const on = S.online && !S.deviceBusy;
+  document.querySelectorAll(".conn-only").forEach((w) => { w.disabled = !on; });
+  updateUploadButton();
+  updateSettingsState();
+}
+
+function setOnline(on) {
+  if (on === S.online) return;
+  S.online = on;
+  $("pill").className = "pill" + (on ? " on" : "");
+  $("pill").textContent = on ? "●  Connected" : "●  Disconnected";
+  $("hint").hidden = on;
+  if (on) {
+    log(`Connected to the programmer at ${location.host}`, "ok");
+    setBanner("Ready", "Programmer connected.", "idle");
+    refreshDevice();
+  } else {
+    S.deviceBusy = false;
+    $("hintText").textContent = "Lost contact with the programmer. Make sure this device is still on the RA-Flasher-XXXX Wi-Fi (http://ra-flasher.local).";
+    setBanner("Not connected", "Waiting for the programmer…", "off");
+    log("Connection to the programmer lost", "err");
+  }
+  updateEnabled();
+}
+
+// ------------------------------------------------------------------ device info
+async function readDevice() { return parseKv(await request("INFO")); }
+
+async function refreshDevice() {
+  await runBg("Refresh", async () => applyDeviceInfo(await readDevice()), true);
+}
+
+function applyDeviceInfo(info, quiet = false) {
+  const prevCrc = S.info.crc, prevImg = S.info.img;
+  S.info = info;
+  if (info.img === "1") {
+    const name = info.name || "-", cf = +info.cf || 0, df = +info.df || 0;
+    const what = `Code flash ${fmtInt(cf)} B` + (df ? ` + data flash ${fmtInt(df)} B` : "");
+    $("devName").textContent = name !== "-" ? name : "(unnamed image)";
+    $("devDetail").textContent = `${what}   ·   CRC ${info.crc}   ·   fw ${info.fw}`;
+    if (!quiet || prevCrc !== info.crc || prevImg !== info.img) log(`Programmer holds ${name} (${what}, CRC ${info.crc})`);
+  } else {
+    $("devName").textContent = "No firmware stored";
+    $("devDetail").textContent = "Load a .hex / .srec file below and upload it to the programmer.";
+  }
+  if ("mode" in info) {
+    const st = { mode: info.mode || "button", erase: info.erase || "chip", verify: info.verify || "1", run: info.run || "1",
+                 reset: info.reset || "1", swdelay: info.swdelay || "4", settle: info.settle || "500" };
+    const dirty = Object.keys(changedSettings()).length > 0;
+    S.saved = st;
+    if (!dirty) showSettings(st);  // don't throw away edits the user has not saved yet
+  }
+  setCounts(+info.pass || 0, +info.fail || 0);
+  updateMatch();
+  updateEnabled();
+}
+
+function setCounts(p, f) {
+  $("nPass").textContent = p;
+  $("nFail").textContent = f;
+  $("nTotal").textContent = p + f;
+  $("nYield").textContent = p + f ? Math.round((100 * p) / (p + f)) + "%" : "–";
+}
+
+function storedCrc() { return S.info.img === "1" ? parseInt(S.info.crc, 16) >>> 0 : null; }
+const sameData = () => !!S.image && storedCrc() === S.image.crc;
+
+function updateMatch() {
+  const m = $("match"), stored = storedCrc();
+  if (!S.online || !S.image || stored === null) { m.textContent = ""; m.className = "match"; }
+  else if (sameData()) { m.textContent = "✓  Same as the file selected below"; m.className = "match same"; }
+  else { m.textContent = "⚠  Different from the file selected below — upload to replace it"; m.className = "match diff"; }
+  updateUploadButton();
+}
+
+function updateUploadButton() {
+  const b = $("uploadBtn"), same = sameData();
+  b.textContent = same ? "Upload again" : "Upload to programmer";
+  b.className = "btn conn-only" + (same ? "" : " accent");
+  if (!S.image) b.disabled = true;
+}
+
+// ------------------------------------------------------------------ image file
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  let im;
+  try { im = loadImage(f.name, new Uint8Array(await f.arrayBuffer())); }
+  catch (err) { showError(`Cannot load ${f.name}: ${err.message}`); return; }
+  S.image = { name: f.name, ...im, crc: crc32(im.data) };
+  $("fileName").textContent = f.name;
+  $("fileDetail").textContent = `${describeImage(im)}   ·   CRC ${hex8(S.image.crc)}`;
+  log(`Selected ${f.name}: ${describeImage(im)}`);
+  setProgress("upBar", 0);
+  updateMatch();
+  updateEnabled();
+});
+
+function uploadXhr(url, form) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url);
+    x.timeout = 60000;
+    x.upload.onprogress = (e) => { if (e.lengthComputable) setProgress("upBar", (100 * e.loaded) / e.total); };
+    x.onload = () => (x.status === 200 ? resolve(x.responseText) : reject(new Error(`HTTP ${x.status}`)));
+    x.onerror = () => reject(new Error("connection lost"));
+    x.ontimeout = () => reject(new Error("no reply from programmer"));
+    x.send(form);
+  });
+}
+
+$("uploadBtn").onclick = () => {
+  if (!S.image) { dialog("No file", "Select a firmware file first."); return; }
+  const { name, cf, df, data, crc } = S.image;
+  runBg("Upload", async () => {
+    const safe = name.replace(/\s+/g, "_").slice(0, 40);
+    const q = new URLSearchParams({ size: data.length, crc: hex8(crc), fields: `${cf.length} ${df.length}`, name: safe });
+    const form = new FormData();
+    form.append("file", new Blob([data], { type: "application/octet-stream" }), safe);
+    const t0 = performance.now();
+    setProgress("upBar", 0);
+    const info = parseReply("UPLOAD", await uploadXhr("/api/upload?" + q, form));
+    setProgress("upBar", 100);
+    log(`Uploaded ${safe}: ${fmtInt(data.length)} bytes in ${((performance.now() - t0) / 1000).toFixed(1)}s, CRC ${hex8(crc)} verified`, "ok");
+    applyDeviceInfo(parseKv(info));
+  });
+};
+
+// ------------------------------------------------------------------ settings
+const radio = (name) => (document.querySelector(`input[name=${name}]:checked`) || {}).value;
+function currentSettings() {
+  const num = (id, d) => { const v = parseInt($(id).value, 10); return Number.isFinite(v) ? String(v) : d; };
+  const chk = (id) => ($(id).checked ? "1" : "0");
+  return { mode: radio("mode"), erase: radio("erase"), verify: chk("verify"), run: chk("run"), reset: chk("reset"),
+           swdelay: num("swdelay", "4"), settle: num("settle", "500") };
+}
+function showSettings(st) {
+  document.querySelectorAll("input[name=mode]").forEach((r) => { r.checked = r.value === st.mode; });
+  document.querySelectorAll("input[name=erase]").forEach((r) => { r.checked = r.value === st.erase; });
+  $("verify").checked = st.verify === "1";
+  $("run").checked = st.run === "1";
+  $("reset").checked = st.reset === "1";
+  $("swdelay").value = st.swdelay;
+  $("settle").value = st.settle;
+  updateSettingsState();
+}
+function changedSettings() {
+  if (!S.saved) return {};
+  const cur = currentSettings(), out = {};
+  for (const k in cur) if (cur[k] !== undefined && S.saved[k] !== cur[k]) out[k] = cur[k];
+  return out;
+}
+function updateSettingsState() {
+  updateFlashHint();
+  const changed = changedSettings(), n = Object.keys(changed).length;
+  const ready = S.online && !S.deviceBusy && S.saved !== null;
+  const lbl = $("saved");
+  if (!ready) { lbl.textContent = "Connect to view and change the programmer settings."; lbl.className = "saved fill"; }
+  else if (n) { lbl.textContent = `●  ${n} unsaved change${n > 1 ? "s" : ""}`; lbl.className = "saved fill warn"; }
+  else { lbl.textContent = "✓  Saved on the programmer"; lbl.className = "saved fill ok"; }
+  $("saveBtn").disabled = $("revertBtn").disabled = !(ready && n);
+}
+$("settings").addEventListener("input", updateSettingsState);
+$("settings").addEventListener("change", updateSettingsState);
+$("revertBtn").onclick = () => S.saved && showSettings(S.saved);
+$("saveBtn").onclick = () => {
+  const changed = changedSettings();
+  if (!Object.keys(changed).length) return;
+  runBg("Save settings", async () => {
+    for (const [k, v] of Object.entries(changed)) await request(`SET ${k} ${v}`);
+    const info = await readDevice();
+    log("Settings saved: " + Object.entries(changed).map(([k, v]) => `${k}=${v}`).join(", "), "ok");
+    S.saved = null;  // take the programmer's values as the new baseline
+    applyDeviceInfo(info, true);
+  });
+};
+
+// ------------------------------------------------------------------ tools
+$("refreshBtn").onclick = () => refreshDevice();
+$("flashBtn").onclick = () => {
+  if (S.deviceBusy) return;
+  if (S.online && S.info.img !== "1") { dialog("No firmware", "The programmer has no firmware yet. Upload one first."); return; }
+  runBg("Flash", () => request("FLASH"));
+};
+$("detectBtn").onclick = () => runBg("Detect", async () => {
+  const info = parseKv(await request("DETECT", 15000));
+  const known = info.part !== "UNKNOWN";
+  const msg = `${info.part}  ·  ${info.flash} KB code flash  ·  UID ${info.uid}  ·  SWD delay ${info.swdelay}` + (info.reset === "1" ? "  ·  via RES" : "");
+  log(`Detected ${msg}  ·  DPIDR ${info.dpidr}  ·  access window ${info.aws}/${info.awe}`, "ok");
+  setBanner(known ? "Chip detected" : "Chip answers, part number unknown", msg, known ? "ok" : "err");
+});
+$("resetBtn").onclick = () => runBg("Reset", async () => {
+  await request("RESET", 15000);
+  log("Target reset and released — the firmware runs", "ok");
+});
+$("eraseBtn").onclick = async () => {
+  if (!(await confirmBox("Erase chip", "Erase the whole code flash and data flash of the connected target?", { okText: "Erase", danger: true }))) return;
+  runBg("Erase", async () => { await request("ERASE", 30000); log("Target erased", "ok"); });
+};
+$("resetCntBtn").onclick = async () => {
+  if (await confirmBox("Reset counters", "Reset PASS / FAIL counters on the programmer?", { okText: "Reset" }))
+    runBg("Reset counters", () => request("RESETCNT"));
+};
+
+$("csvBtn").onclick = () => {
+  if (!S.results.length) { dialog("No results yet", "Results are collected while this page is open."); return; }
+  const esc = (v) => /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v;
+  const rows = [["timestamp", "result", "chip", "uid", "ms", "message", "image"], ...S.results];
+  const blob = new Blob([rows.map((r) => r.map(esc).join(",")).join("\r\n") + "\r\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `flash_log_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+// ------------------------------------------------------------------ events
+function setDeviceBusy(busy) {
+  if (busy !== S.deviceBusy) { S.deviceBusy = busy; updateEnabled(); }
+}
+
+function onResult(line) {
+  const p = line.split(" ");
+  const img = S.info.name || "";
+  const ts = new Date().toISOString().slice(0, 19);
+  if (p[2] === "PASS") {
+    const [ms, chip, uid] = [p[3], p[4], p[5]];
+    setProgress("progBar", 100);
+    const msg = `${chip} ${(S.saved || {}).verify === "0" ? "programmed" : "programmed and verified"} in ${(ms / 1000).toFixed(2)} s`;
+    setBanner("✓  PASS", msg, "ok");
+    log(`PASS  ${msg}`, "ok");
+    S.results.push([ts, "PASS", chip, uid, ms, "", img]);
+  } else {
+    const counted = p[3] === "1", reason = p.slice(4).join(" ");
+    setBanner("✕  FAIL", reason + (counted ? "" : "   (not counted)"), "err");
+    log(`FAIL  ${reason}` + (counted ? "" : "  (not counted)"), "err");
+    S.results.push([ts, counted ? "FAIL" : "NO-TARGET", "", "", "", reason, img]);
+  }
+}
+
+function onDeviceLine(line) {
+  if (!line.startsWith("@EVT")) return;
+  const p = line.split(" ");
+  const ev = p[1] || "";
+  if (ev === "COUNT") setCounts(+p[2], +p[3]);
+  else if (ev === "STATE") {
+    if (p[2] === "idle") { setDeviceBusy(false); return; }
+    setDeviceBusy(true);
+    if (p[2] === "connect") setProgress("progBar", 0);
+    setBanner((STATE_TEXT[p[2]] || p[2]) + "…", "", "busy");
+  } else if (ev === "PROGRESS") {
+    setProgress("progBar", +p[3]);
+    $("bMsg").textContent = `${p[2][0].toUpperCase()}${p[2].slice(1)}  ${p[3]}%`;
+  } else if (ev === "CHIP") log(`Target: ${p[2]}  UID ${p[3]}`);
+  else if (ev === "TARGET") {
+    if (p[2] === "present") {
+      log("Board detected (auto mode)", "dim");
+      setBanner("Board detected", `Flashing starts in ${(S.saved || {}).settle || "500"} ms…`, "busy");
+    } else {
+      log("Board removed — waiting for the next one", "dim");
+      setBanner("Waiting for board", "Place the next board on the fixture.", "idle");
+    }
+  } else if (ev === "RESULT") onResult(line);
+  else if (ev === "BOOT") { log("Programmer restarted", "dim"); refreshDevice(); }
+  else log(line, "dim");
+}
+
+let failures = 0, lastInfoPoll = 0;
+async function poll() {
+  try {
+    const text = await fetchText(`/api/events?since=${S.since}`, {}, 4000);
+    const lines = text.split("\n");
+    const [seq, busy] = lines[0].split(" ");
+    const first = !S.online;
+    failures = 0;
+    setOnline(true);
+    // On first contact only the live state matters, not the history of events before the page opened.
+    if (!first || S.since) lines.slice(1).filter(Boolean).forEach(onDeviceLine);
+    S.since = +seq;
+    setDeviceBusy(busy === "1");
+    // Settings / image may also be changed from the desktop app over USB: re-read now and then.
+    if (!S.deviceBusy && !S.busy && Date.now() - lastInfoPoll > 10000) {
+      lastInfoPoll = Date.now();
+      runBg("Refresh", async () => applyDeviceInfo(await readDevice(), true), true);
+    }
+  } catch (e) {
+    if (++failures >= 3) setOnline(false);
+  }
+  setTimeout(poll, S.online ? 400 : 1500);
+}
+
+// Touch screens: the iOS captive-portal window focuses the first text field on load (it expects a
+// login form), which pops the keyboard up. Keep fields read-only until the user actually taps one.
+if (matchMedia("(pointer: coarse)").matches) {
+  document.querySelectorAll("input[type=text], input[type=number]").forEach((el) => {
+    el.readOnly = true;
+    el.addEventListener("pointerdown", () => { el.readOnly = false; });
+    el.addEventListener("blur", () => { el.readOnly = true; });
+  });
+  if (document.activeElement && document.activeElement.matches("input")) document.activeElement.blur();
+}
+
+$("host").textContent = location.host;
+setBanner("Not connected", "Connecting to the programmer…", "off");
+updateEnabled();
+poll();
+</script>
+</body>
+</html>
